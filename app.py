@@ -1,7 +1,7 @@
 """
-Streamlit Web App — K-Means Cluster Prediction
-โหลดโมเดล K-Means ที่เทรนไว้จาก Google Colab (kmeans_model.pkl)
-แล้วให้ผู้ใช้กรอกข้อมูล หรืออัปโหลด CSV เพื่อทำนายว่าข้อมูลอยู่กลุ่มไหน
+Streamlit Web App — Regression Prediction
+โหลดโมเดล Regression ที่เทรนไว้จาก Google Colab (regression_model.pkl)
+แล้วให้ผู้ใช้กรอกข้อมูล หรืออัปโหลด CSV เพื่อทำนายค่าตัวเลข (เช่น ราคาบ้าน)
 """
 
 import streamlit as st
@@ -9,14 +9,13 @@ import pandas as pd
 import numpy as np
 import joblib
 import plotly.express as px
-from sklearn.decomposition import PCA
 
 # ---------------------------------------------------------------
 # ตั้งค่าหน้าเว็บ
 # ---------------------------------------------------------------
 st.set_page_config(
-    page_title="K-Means Cluster Predictor",
-    page_icon="🔮",
+    page_title="Regression Predictor",
+    page_icon="📈",
     layout="wide",
 )
 
@@ -37,7 +36,7 @@ st.markdown(
             font-weight: 600;
         }
         .stButton>button {
-            background-color: #4F46E5;
+            background-color: #0F766E;
             color: white;
             border-radius: 8px;
             border: none;
@@ -45,7 +44,7 @@ st.markdown(
             font-weight: 500;
         }
         .stButton>button:hover {
-            background-color: #4338CA;
+            background-color: #0B5A54;
             color: white;
         }
         div[data-testid="metric-container"] {
@@ -54,12 +53,12 @@ st.markdown(
             border-radius: 12px;
             padding: 1rem;
         }
-        .cluster-badge {
+        .result-badge {
             display: inline-block;
             padding: 0.4rem 1rem;
             border-radius: 999px;
-            background-color: #EEF2FF;
-            color: #4F46E5;
+            background-color: #ECFDF5;
+            color: #0F766E;
             font-weight: 600;
             font-size: 1.1rem;
         }
@@ -72,13 +71,19 @@ st.markdown(
 # โหลดโมเดล (cache ไว้ไม่ต้องโหลดซ้ำทุกครั้ง)
 # ---------------------------------------------------------------
 @st.cache_resource
-def load_model(path: str = "kmeans_model.pkl"):
+def load_model(path: str = "regression_model.pkl"):
     bundle = joblib.load(path)
-    return bundle["scaler"], bundle["kmeans"], bundle["feature_cols"], bundle["n_clusters"]
+    return (
+        bundle["scaler"],
+        bundle["model"],
+        bundle["model_name"],
+        bundle["feature_cols"],
+        bundle["target_col"],
+    )
 
 
 try:
-    scaler, kmeans_model, feature_cols, n_clusters = load_model()
+    scaler, reg_model, model_name, feature_cols, target_col = load_model()
     model_loaded = True
 except FileNotFoundError:
     model_loaded = False
@@ -86,59 +91,66 @@ except FileNotFoundError:
 # ---------------------------------------------------------------
 # ส่วนหัวของหน้าเว็บ
 # ---------------------------------------------------------------
-st.title("🔮 K-Means Cluster Predictor")
-st.write("เว็บแอปสำหรับทำนายกลุ่ม (Cluster) ของข้อมูล โดยใช้โมเดล K-Means ที่เทรนไว้แล้ว")
+st.title("📈 Regression Predictor")
+st.write("เว็บแอปสำหรับทำนายค่าตัวเลข (เช่น ราคาบ้าน) โดยใช้โมเดล Regression ที่เทรนไว้แล้ว")
 
 if not model_loaded:
     st.error(
-        "ไม่พบไฟล์โมเดล `kmeans_model.pkl` กรุณาวางไฟล์นี้ไว้ในโฟลเดอร์เดียวกับ `app.py` "
-        "(ไฟล์นี้ได้จากการรัน train_kmeans_colab.ipynb บน Google Colab แล้วดาวน์โหลดมา)"
+        "ไม่พบไฟล์โมเดล `regression_model.pkl` กรุณาวางไฟล์นี้ไว้ในโฟลเดอร์เดียวกับ `app.py` "
+        "(ไฟล์นี้ได้จากการรัน train_regression_colab.ipynb บน Google Colab แล้วดาวน์โหลดมา)"
     )
     st.stop()
 
 st.divider()
 
 # ---------------------------------------------------------------
-# แถบด้านข้าง: เลือกโหมดการทำนาย
+# แถบด้านข้าง: ข้อมูลโมเดล + เลือกโหมด
 # ---------------------------------------------------------------
 st.sidebar.header("⚙️ ตั้งค่า")
 mode = st.sidebar.radio("เลือกวิธีการใส่ข้อมูล", ["กรอกข้อมูลเอง", "อัปโหลดไฟล์ CSV"])
 
 st.sidebar.divider()
-st.sidebar.write(f"**จำนวนกลุ่มของโมเดล:** {n_clusters} clusters")
-st.sidebar.write(f"**Feature ที่โมเดลใช้:** {len(feature_cols)} ตัว")
-with st.sidebar.expander("ดูรายชื่อ Feature"):
+st.sidebar.write(f"**โมเดลที่ใช้:** {model_name}")
+st.sidebar.write(f"**ตัวแปรเป้าหมาย:** {target_col}")
+with st.sidebar.expander("ดูรายชื่อ Feature ที่โมเดลใช้"):
     for col in feature_cols:
         st.write(f"- {col}")
+
+# ค่าเริ่มต้นแบบคร่าวๆ (อ้างอิงช่วงค่าของ California Housing dataset)
+default_values = {
+    "MedInc": 3.87, "HouseAge": 28.0, "AveRooms": 5.4, "AveBedrms": 1.1,
+    "Population": 1425.0, "AveOccup": 3.0, "Latitude": 35.6, "Longitude": -119.5,
+}
 
 # ---------------------------------------------------------------
 # โหมดที่ 1: กรอกข้อมูลเอง
 # ---------------------------------------------------------------
 if mode == "กรอกข้อมูลเอง":
-    st.subheader("📝 กรอกข้อมูลเพื่อทำนายกลุ่ม")
+    st.subheader("📝 กรอกข้อมูลเพื่อทำนายค่า")
 
     col1, col2 = st.columns(2)
     input_values = {}
 
     for i, feature in enumerate(feature_cols):
-        target_col = col1 if i % 2 == 0 else col2
-        with target_col:
+        target_col_widget = col1 if i % 2 == 0 else col2
+        with target_col_widget:
+            default_val = default_values.get(feature, 0.0)
             input_values[feature] = st.number_input(
-                feature, value=0.0, step=0.1, format="%.2f", key=feature
+                feature, value=float(default_val), step=0.1, format="%.3f", key=feature
             )
 
-    if st.button("🔍 ทำนายกลุ่ม", use_container_width=False):
+    if st.button("🔍 ทำนายค่า", use_container_width=False):
         input_df = pd.DataFrame([input_values])[feature_cols]
         scaled_input = scaler.transform(input_df)
-        cluster = kmeans_model.predict(scaled_input)[0]
+        prediction = reg_model.predict(scaled_input)[0]
 
         st.divider()
         m1, m2 = st.columns([1, 2])
         with m1:
-            st.metric("ผลการทำนาย", f"Cluster {cluster}")
+            st.metric(f"ค่าทำนาย ({target_col})", f"{prediction:,.3f}")
         with m2:
             st.markdown(
-                f'<span class="cluster-badge">ข้อมูลนี้อยู่ในกลุ่มที่ {cluster}</span>',
+                f'<span class="result-badge">ผลการทำนาย: {prediction:,.3f}</span>',
                 unsafe_allow_html=True,
             )
 
@@ -146,7 +158,7 @@ if mode == "กรอกข้อมูลเอง":
 # โหมดที่ 2: อัปโหลดไฟล์ CSV
 # ---------------------------------------------------------------
 else:
-    st.subheader("📂 อัปโหลดไฟล์ CSV เพื่อทำนายกลุ่มหลายแถวพร้อมกัน")
+    st.subheader("📂 อัปโหลดไฟล์ CSV เพื่อทำนายหลายแถวพร้อมกัน")
     st.caption(f"ไฟล์ CSV ต้องมีคอลัมน์: {', '.join(feature_cols)}")
 
     uploaded_file = st.file_uploader("เลือกไฟล์ CSV", type=["csv"])
@@ -160,27 +172,21 @@ else:
         else:
             X_new = df_upload[feature_cols].fillna(df_upload[feature_cols].median())
             X_scaled = scaler.transform(X_new)
-            clusters = kmeans_model.predict(X_scaled)
+            predictions = reg_model.predict(X_scaled)
 
             df_result = df_upload.copy()
-            df_result["cluster"] = clusters
+            df_result[f"predicted_{target_col}"] = predictions
 
             st.success(f"ทำนายสำเร็จ {len(df_result)} แถว")
             st.dataframe(df_result, use_container_width=True)
 
-            # กราฟแสดงผลด้วย PCA 2 มิติ
-            pca = PCA(n_components=2, random_state=42)
-            coords = pca.fit_transform(X_scaled)
-            plot_df = pd.DataFrame(coords, columns=["PCA1", "PCA2"])
-            plot_df["cluster"] = clusters.astype(str)
-
-            fig = px.scatter(
-                plot_df,
-                x="PCA1",
-                y="PCA2",
-                color="cluster",
-                title="การกระจายตัวของกลุ่มข้อมูล (PCA 2D)",
-                color_discrete_sequence=px.colors.qualitative.Set2,
+            # กราฟแสดงการกระจายตัวของค่าทำนาย
+            fig = px.histogram(
+                df_result,
+                x=f"predicted_{target_col}",
+                nbins=30,
+                title=f"การกระจายตัวของค่าทำนาย ({target_col})",
+                color_discrete_sequence=["#0F766E"],
             )
             fig.update_layout(
                 plot_bgcolor="white",
@@ -194,9 +200,9 @@ else:
             st.download_button(
                 "⬇️ ดาวน์โหลดผลลัพธ์ (CSV)",
                 data=csv_out,
-                file_name="cluster_result.csv",
+                file_name="regression_result.csv",
                 mime="text/csv",
             )
 
 st.divider()
-st.caption("สร้างด้วย Streamlit + scikit-learn (K-Means Clustering)")
+st.caption("สร้างด้วย Streamlit + scikit-learn (Regression)")
